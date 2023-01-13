@@ -98,7 +98,12 @@ class Ansible(object):
             files.
         """
         self.log.debug("Determining type of inventory_path {}".format(inventory_path))
-        if os.path.isfile(inventory_path) and \
+         if os.path.isfile(inventory_path) and \
+            (inventory_path.endswith('.yml') or
+             inventory_path.endswith('.yaml')):
+            self.log.debug("{} is a YAML inventory file. Parsing it with ansible-inventory".format(inventory_path))
+            self._parse_ansible_inventory(inventory_path)
+        elif os.path.isfile(inventory_path) and \
            util.is_executable(inventory_path):
             # It's a file and it's executable. Handle as dynamic inventory script
             self.log.debug("{} is a executable. Handle as dynamic inventory script".format(inventory_path))
@@ -323,6 +328,27 @@ class Ansible(object):
         except OSError as err:
             sys.stderr.write("Exception while executing dynamic inventory script '{0}':\n\n".format(script))
             sys.stderr.write(str(err) + '\n')
+            
+    def _parse_ansible_inventory(self, filename):
+            try:
+                proc = subprocess.Popen(["ansible-inventory", '-i', filename, '--list'],
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        close_fds=True)
+                stdout, stderr = proc.communicate(input)
+                if proc.returncode != 0:
+                    sys.stderr.write("ansible-inventory with inventory file '{0}' returned "
+                                     "exitcode {1}\n".format(filename,
+                                                             proc.returncode))
+                    for line in stderr:
+                        sys.stderr.write(line)
+
+                dyninv_parser = parser.DynInvParser(stdout.decode('utf8'))
+                for hostname, key_values in dyninv_parser.hosts.items():
+                    self.update_host(hostname, key_values)
+            except OSError as err:
+                sys.stderr.write("Exception while executing ansible-inventory with inventory file '{0}':\n\n".format(filename))
+                sys.stderr.write(str(err) + '\n')
 
     def update_host(self, hostname, key_values, overwrite=True):
         """
